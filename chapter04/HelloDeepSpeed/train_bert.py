@@ -234,9 +234,11 @@ def create_data_iterator(
             be able to continuously generate samples
 
     """
+    # 加载wikitext数据集
     wikitext_dataset = datasets.load_dataset("wikitext",
                                              "wikitext-2-v1",
                                              split="train")
+    # 过滤掉text为空的数据，并去掉每行文本末尾的换行符
     wikitext_dataset = wikitext_dataset.filter(
         lambda record: record["text"] != "").map(
             lambda record: {"text": record["text"].rstrip("\n")})
@@ -264,7 +266,7 @@ def create_data_iterator(
 ############### Model Creation Related Functions #####################
 ######################################################################
 
-
+# 在RobertaLMHead的基础上，添加了masked_token_indices参数，用于支持在forward方法中只对masked的token进行预测
 class RobertaLMHeadWithMaskedPredict(RobertaLMHead):
     def __init__(self,
                  config: RobertaConfig,
@@ -305,6 +307,7 @@ class RobertaLMHeadWithMaskedPredict(RobertaLMHead):
 class RobertaMLMModel(RobertaPreTrainedModel):
     def __init__(self, config: RobertaConfig, encoder: RobertaModel) -> None:
         super().__init__(config)
+        # encoder其实为多个RobertaEncoder块(多头自注意力层+前馈神经网络层)
         self.encoder = encoder
         self.lm_head = RobertaLMHeadWithMaskedPredict(
             config, self.encoder.embeddings.word_embeddings.weight)
@@ -349,7 +352,8 @@ class RobertaMLMModel(RobertaPreTrainedModel):
                                     masked_token_indexes)
 
         loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
-
+        
+        # 只计算masked的token的loss
         masked_lm_loss = loss_fct(
             prediction_scores.view(-1, self.config.vocab_size), target)
         return masked_lm_loss
@@ -465,7 +469,7 @@ def create_experiment_dir(checkpoint_dir: pathlib.Path,
     try:
         gitlog = sh.git.log("-1", format="%H", _tty_out=False, _fg=False)
         with (exp_dir / "githash.log").open("w") as handle:
-            handle.write(gitlog)
+            handle.write(str(gitlog))
     except sh.ErrorReturnCode_128:
         logger.info("Seems like the code is not running from"
                     " within a git repo, so hash will"
@@ -476,7 +480,7 @@ def create_experiment_dir(checkpoint_dir: pathlib.Path,
     try:
         gitdiff = sh.git.diff(_fg=False, _tty_out=False)
         with (exp_dir / "gitdiff.log").open("w") as handle:
-            handle.write(gitdiff)
+            handle.write(str(gitdiff))
     except sh.ErrorReturnCode_129:
         logger.info("Seems like the code is not running from"
                     " within a git repo, so diff will"
@@ -665,6 +669,7 @@ def train(
         exp_dir = create_experiment_dir(checkpoint_dir, all_arguments)
         logger.info(f"Experiment Directory created at {exp_dir}")
     else:
+        # 加载实验目录
         logger.info("Loading from Experiment Directory")
         load_checkpoint_dir = pathlib.Path(load_checkpoint_dir)
         assert load_checkpoint_dir.exists()

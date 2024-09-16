@@ -235,9 +235,17 @@ def create_data_iterator(
 
     """
     # 加载wikitext数据集
-    wikitext_dataset = datasets.load_dataset("wikitext",
-                                             "wikitext-2-v1",
-                                             split="train")
+    # wikitext_dataset = datasets.load_dataset("wikitext",
+    #                                          "wikitext-2-v1",
+    #                                          split="train")
+    
+    # 加载本地数据集
+    from datasets import load_dataset
+
+    wikitext_dataset = load_dataset("parquet", 
+                                    data_files={"train": "data/train-00000-of-00001.parquet"},
+                                    split="train")
+    
     # 过滤掉text为空的数据，并去掉每行文本末尾的换行符
     wikitext_dataset = wikitext_dataset.filter(
         lambda record: record["text"] != "").map(

@@ -1,4 +1,7 @@
-data/
+!utils/data/
+
 experiment/
 runs/
-!utils/data/
+
+chapter02/data
+chapter04/HelloDeepSpeed/data

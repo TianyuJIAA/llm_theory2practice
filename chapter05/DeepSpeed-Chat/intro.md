@@ -254,3 +254,7 @@ conda create -n llm_env python=3.10.15
 conda activate llm_env
 pip install -r requirements.txt
 ```
+
+## 最终
+
+在本地测试代码后，最终决定还是需要先通过hf-mirro手动下载数据集到本地目录，然后通过修改脚本制定model_path和data_path即可

@@ -19,6 +19,67 @@ DeepSpeed-Chat是微软于2023年发布的基于Deepspeed用于训练类ChatGPT�
 2.奖励模型微调: 使用一个包含人类对同一个查询的多个答案打分的数据集来训练一个独立的奖励模型(RW)  
 3.RLHF训练: 利用PPO算法，根据RW模型的奖励反馈进一步微调SFT模型
 
+# 代码分析
+
+详细看下Deepspeed-Chat代码
+
+## SFT
+
+### 启动脚本
+
+```bash
+# 梯度累计的步骤数，即每8个batch计算一次梯度，反向传播参数，适用于显存有限情况
+--gradient_accumulation_steps 8
+
+# 热身步数。在训练开始时，通常会选择较小的学习率逐渐增加到设定的学习率，以提升模型的稳定性和性能
+--num_warmup_steps 0
+
+# lora相关参数配置，1为lora层的维度，减少训练参数。2为指定lora调优的模块为decoder，默认应该是只有注意力层
+--lora_dim 128 \
+--lora_module_name decoder.layers. \
+
+# 权重衰减可以帮助减少模型对训练数据的过拟合
+--weight_decay
+
+# 学习率超参数，设置学习率调度器的类型，比如线性、余弦和指数等
+--lr_scheduler_type
+
+# 启用梯度检查点技术，用于节省内存
+--gradient_checkpointing
+```
+
+### SFT main方法
+
+对基于transformer结构的模型进行微调，本质上是CLM任务，也就是Causal Language Modeling-因果语言模型。主要特点是自回归，广泛应用于文本生成任务。  
+
+与之区别的是掩码语言模型Masked Language Modeling (MLM)，MLM允许模型在预测某个单词时使用上下文中其他未被遮掩的单词，CLM只能使用左侧的上下文
+
+#### 数据集
+
+1.3b仅使用默认数据集，6.7b及更大的模型使用了多个数据集，并设置了对应的split比例  
+
+数据集的下载和具体格式可以查看huggingface官网查看，这里主要看下`Dahoas/rm-static`数据集  
+
+Dahoas/rm-static数据集主要用于模型微调，数据集包含了经过人类评审的文本，旨在捕捉人类对于生成内容的偏好和评价。这些反馈帮助优化模型，使其能够生成更符合人类期望的文本，具体信息为: 
+
+<img src="assets/image/dahoas_rm_static.png" style="zoom:80%;"/>
+
+Dahoas/rm-static数据:  
+
+<img src="assets/image/dahoas_rm_static_data.png" style="zoom:80%;"/>
+
+
+#### 模型结构
+
+[opt论文](https://arxiv.org/pdf/2205.01068)
+[opt-hf](https://huggingface.co/docs/transformers/en/model_doc/opt)
+
+无论有监督微调还是对奖励模型的微调所使用的都是opt模型，其有多种参数类型(350m 1.3b 6.7b 13b...)  
+
+opt的模型结构比较简单，因为是生成式模型所以只包含Decoder，350m的结构为:  
+
+<img src="assets/image/opt-350m-model.png" style="zoom:80%;"/>
+
 # Auto DL
 
 ## 租卡
@@ -88,6 +149,8 @@ conda activate ds_env
 
 # 模型训练
 
+## 前置问题
+
 autodl提供了学术加速的脚本:  
 
 ```bash
@@ -122,7 +185,7 @@ python e2e_rlhf.py --actor-model facebook/opt-1.3b --reward-model facebook/opt-3
 
 但是在google的colab中没有报错，所以把当时的Python库导出了一份，后面直接使用这个requirement文件，python版本为3.10.12
 
-## 网络问题
+### 网络问题
 
 在autodl加载模型和数据有网络问题，原因是Huggingface把国内给墙了。从网上找到博客，配置了Huggingface的镜像网站也不太行，所以还是需要手动下载数据集和模型，然后设置offline模式
 
@@ -143,7 +206,7 @@ opt-350m
 
 Dahoas/rm-static
 
-### Cache setup
+#### Cache setup
 
 设置huggingface的缓存位置，在mac中的默认缓存为/Users/username/.cache/huggingface，但是可以通过在shell命令行中声明相关变量来改变，或者可以加到profile和bashrc文件中，比如上面在Autodl中的配置:
 
@@ -151,7 +214,7 @@ Dahoas/rm-static
 export HF_HOME=/root/autodl-tmp/tianyu/.cache 
 ```
 
-### Offline mode
+#### Offline mode
 
 通常情况下在使用```from_pretrained```方法加载model和Tokenizer时会从远程(huggingface/hfmirror)下载，但是可以通过指令offline模式来从本地cache加载文件，通过设置环境变量```HF_HUB_OFFLINE=1```，同理如果是数据集的话可以通过设置环境变量```HF_DATASETS_OFFLINE=1```解决  
 
@@ -163,11 +226,11 @@ from transformers import T5Model
 model = T5Model.from_pretrained("./path/to/local/directory", local_files_only=True)
 ```
 
-### Download
+#### Download
 
 下载模型和数据集有3种方式: 官网下载、api下载和通过git lfs下载，接下来分别通过这三种方式下载两种模型和一个数据集
 
-#### 官网下载
+##### 官网下载
 
 如果是从Huggingface下载需要有科学上网工具，国内的话可以通过镜像源下载(https://hf-mirror.com/)，这里我直接从Huggingface官网下载opt/350m模型，直接搜索然后分别点击下载按钮下载即可  
 
@@ -175,7 +238,7 @@ model = T5Model.from_pretrained("./path/to/local/directory", local_files_only=Tr
 
 需要一个一个文件下载，有点慢
 
-#### git lfs
+##### git lfs
 
 通过Clone this model repository到本地，官网有具体的使用说明:  
 
@@ -203,7 +266,7 @@ GIT_LFS_SKIP_SMUDGE=1 git clone https://huggingface.co/facebook/opt-1.3b
 git clone https://hf-mirror.com/facebook/opt-1.3b
 ```
 
-#### api或者是cli下载
+##### api或者是cli下载
 
 通过huggingface提供的api或者是cli下载，使用这种方法需要安装依赖:  
 
@@ -228,7 +291,7 @@ hf_hub_download(repo_id="bigscience/T0_3B", filename="config.json", cache_dir=".
 
 <img src="assets/image/hf-mirror.png" style="zoom:60%;"/>
 
-#### 使用
+##### 使用
 
 模型和数据集文件下载到本地后，可以直接指定路径使用，或者可以把数据直接放到缓存路径?这样可以直接加载本地的缓存数据了  
 
@@ -255,6 +318,11 @@ conda activate llm_env
 pip install -r requirements.txt
 ```
 
-## 最终
+### final
 
 在本地测试代码后，最终决定还是需要先通过hf-mirro手动下载数据集到本地目录，然后通过修改脚本制定model_path和data_path即可
+
+先测试单卡，在测试单机多卡的脚本
+
+## 训练
+
